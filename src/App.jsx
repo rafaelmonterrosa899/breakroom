@@ -249,7 +249,7 @@ export default function App() {
   // Active break
   const myActiveBreak = useMemo(() => {
     if (!currentUser) return null
-    return Object.values(breaks).find(b => b.userId === currentUser.id && !b.endTime) || null
+    return Object.values(breaks).find(b => b.userId === currentUser.id && b.endTime === 0) || null
   }, [breaks, currentUser])
 
   // Break actions
@@ -259,7 +259,7 @@ export default function App() {
     if (!bt) return
     const id = `${currentUser.id}_${Date.now()}`
     const ticket = ticketNumber || null
-    set(ref(db, `breaks/${id}`), { id, userId: currentUser.id, userName: currentUser.name, type, startTime: Date.now(), endTime: null, ticketNumber: ticket })
+    set(ref(db, `breaks/${id}`), { id, userId: currentUser.id, userName: currentUser.name, type, startTime: Date.now(), endTime: 0, ticketNumber: ticket || '' })
     if (ticket) set(ref(db, `currentTickets/${currentUser.id}`), ticket)
     notify(`${bt.icon} ${bt.label} started${ticket ? ` — #${ticket}` : ''}`)
   }, [currentUser, myActiveBreak, breakTypes, notify])
@@ -314,7 +314,7 @@ export default function App() {
   const updateBreakType = useCallback((key, data) => { set(ref(db, `breakTypes/${key}`), data); notify(`✏️ "${data.label}" updated`) }, [notify])
   const removeBreakType = useCallback((key) => {
     const bt = breakTypes[key]
-    const activeOfType = Object.values(breaks).find(b => b.type === key && !b.endTime)
+    const activeOfType = Object.values(breaks).find(b => b.type === key && b.endTime === 0)
     if (activeOfType) { notify(`❌ Can't delete — someone is on ${bt?.label}`); return }
     remove(ref(db, `breakTypes/${key}`))
     notify(`🗑️ "${bt?.label}" deleted`)
@@ -505,7 +505,7 @@ function MyBreakTab({ breakTypes, activeBreak, now, onStartBreak, onEndBreak, cu
 
 // ─── Dashboard ───────────────────────────────────────────────────
 function DashboardTab({ breakTypes, users, breaks, currentTickets, now, isAdmin, onForceEnd }) {
-  const activeBreaks = Object.values(breaks).filter(b => !b.endTime)
+  const activeBreaks = Object.values(breaks).filter(b => b.endTime === 0)
   const workingCount = activeBreaks.filter(b => { const bt = breakTypes[b.type]; return bt && bt.requiresTicket }).length
   const onBreakCount = activeBreaks.length - workingCount
   const overtimeCount = activeBreaks.filter(b => { const bt = breakTypes[b.type] || { maxMinutes: 30 }; return !bt.requiresTicket && (now - b.startTime) > bt.maxMinutes * 60 * 1000 }).length
