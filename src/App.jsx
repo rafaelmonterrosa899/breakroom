@@ -26,6 +26,34 @@ function today(){return new Date().toISOString().split('T')[0]}
 function greeting(){const h=new Date().getHours();if(h<12)return'Good morning';if(h<17)return'Good afternoon';return'Good evening'}
 function objArr(o){return o?Object.values(o):[]}
 
+// Notification sound using Web Audio API
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator(); const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(587, ctx.currentTime)
+    osc.frequency.setValueAtTime(784, ctx.currentTime + 0.15)
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.3)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5)
+    osc.start(); osc.stop(ctx.currentTime + 0.5)
+  } catch(e) {}
+}
+
+function requestNotifPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission()
+  }
+}
+
+function sendBrowserNotif(title, body) {
+  playNotifSound()
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '☕' })
+  }
+}
+
 // ─── Styles ──────────────────────────────────────────────────────
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -187,6 +215,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg-deep);color:var(--text
 }
 .mobile-tabs{display:none}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.chat-container{display:flex;flex-direction:column;height:calc(100vh - 160px);max-height:600px}
+.chat-messages{flex:1;overflow-y:auto;padding:16px 0;display:flex;flex-direction:column;gap:8px}
+.chat-msg{display:flex;gap:10px;align-items:flex-start;padding:8px 12px;border-radius:var(--radius-sm);transition:background var(--transition)}
+.chat-msg:hover{background:var(--bg-card-hover)}
+.chat-msg .msg-name{font-size:12px;font-weight:600;color:var(--accent)}
+.chat-msg .msg-text{font-size:14px;margin-top:2px;line-height:1.5}
+.chat-msg .msg-time{font-size:11px;color:var(--text-muted);margin-top:2px}
+.chat-input-row{display:flex;gap:8px;padding-top:12px;border-top:1px solid var(--border)}
+.chat-input{flex:1;padding:12px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary);font-family:inherit;font-size:14px;outline:none}
+.chat-input:focus{border-color:var(--accent)}
+.weather-widget{display:flex;align-items:center;gap:16px;padding:16px 20px;background:var(--bg-elevated);border-radius:var(--radius);margin-bottom:20px}
+.weather-temp{font-family:'JetBrains Mono',monospace;font-size:36px;font-weight:600}
+.weather-info{flex:1}
+.weather-desc{font-size:14px;text-transform:capitalize}
+.weather-details{font-size:12px;color:var(--text-muted);margin-top:2px}
+.weather-icon{font-size:40px}
 `
 
 // ─── Firebase init ───────────────────────────────────────────────
@@ -208,6 +252,7 @@ export default function App() {
   const [currentTickets, setCT] = useState({})
   const [clockIns, setClockIns] = useState({})
   const [assignments, setAssignments] = useState({})
+  const [chatMsgs, setChatMsgs] = useState({})
   const [tab, setTab] = useState('home')
   const [now, setNow] = useState(Date.now())
   const [notif, setNotif] = useState(null)
@@ -222,16 +267,40 @@ export default function App() {
       onValue(ref(db, 'currentTickets'), s => setCT(s.exists() ? s.val() : {}))
       onValue(ref(db, 'clockIns'), s => setClockIns(s.exists() ? s.val() : {}))
       onValue(ref(db, 'assignments'), s => setAssignments(s.exists() ? s.val() : {}))
+      onValue(ref(db, 'chatMessages'), s => setChatMsgs(s.exists() ? s.val() : {}))
       setLoading(false)
     })
   }, [])
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id) }, [])
   useEffect(() => { if (currentUser) localStorage.setItem('br_session', JSON.stringify(currentUser)); else localStorage.removeItem('br_session') }, [currentUser])
+  useEffect(() => { requestNotifPermission() }, [])
 
   const notify = useCallback(m => { setNotif(m); setTimeout(() => setNotif(null), 3000) }, [])
-  const handleLogin = useCallback((u, p) => { const user = Object.values(users).find(x => x.username === u && x.password === p); if (user) { setCU(user); return true } return false }, [users])
+  const handleLogin = useCallback((u, p) => { const user = Object.values(users).find(x => x.username === u && x.password === p); if (user) { setCU(user); requestNotifPermission(); return true } return false }, [users])
   const handleLogout = useCallback(() => { setCU(null); setTab('home') }, [])
+
+  // Watch for break changes and send browser notifications
+  const prevBreaksRef = React.useRef({})
+  useEffect(() => {
+    if (!currentUser) return
+    const prev = prevBreaksRef.current
+    const curr = breaks
+    // Find new breaks that weren't in prev (someone just went on break)
+    Object.entries(curr).forEach(([id, b]) => {
+      if (!prev[id] && b.endTime === 0 && b.userId !== currentUser.id) {
+        const bt = breakTypes[b.type]
+        sendBrowserNotif(`${bt?.icon || '⏸️'} ${b.userName} went on ${bt?.label || 'break'}`, bt?.requiresTicket && b.ticketNumber ? `Working on ticket #${b.ticketNumber}` : `Started at ${fmtTime(b.startTime)}`)
+      }
+    })
+    // Find breaks that were removed (someone ended break)
+    Object.entries(prev).forEach(([id, b]) => {
+      if (!curr[id] && b.userId !== currentUser.id) {
+        sendBrowserNotif(`✅ ${b.userName} is back`, `Ended ${breakTypes[b.type]?.label || 'break'}`)
+      }
+    })
+    prevBreaksRef.current = { ...curr }
+  }, [breaks, currentUser, breakTypes])
 
   const myBreak = useMemo(() => currentUser ? Object.values(breaks).find(b => b.userId === currentUser.id && b.endTime === 0) || null : null, [breaks, currentUser])
 
@@ -305,6 +374,12 @@ export default function App() {
     set(ref(db, `assignments/${aid}/completedAt`), Date.now())
   }, [])
 
+  const sendChat = useCallback((text) => {
+    if (!currentUser || !text.trim()) return
+    const id = `msg_${Date.now()}_${currentUser.id}`
+    set(ref(db, `chatMessages/${id}`), { id, userId: currentUser.id, userName: currentUser.name, avatar: currentUser.avatar, text: text.trim(), timestamp: Date.now() })
+  }, [currentUser])
+
   if (loading) return <><style>{CSS}</style><div className="loading-screen"><div className="spinner" /><div>Connecting to BreakRoom...</div></div></>
   if (!currentUser) return <><style>{CSS}</style><LoginScreen users={users} onLogin={handleLogin} /></>
 
@@ -317,6 +392,7 @@ export default function App() {
     { id: 'home', label: '🏠 Home' },
     { id: 'my-break', label: 'Breaks' },
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'chat', label: '💬 Chat' },
     { id: 'history', label: 'History' },
     ...(isAdmin ? [{ id: 'assign', label: 'Assign Tickets' }, { id: 'categories', label: 'Types' }, { id: 'manage', label: 'Users' }] : []),
   ]
@@ -341,6 +417,7 @@ export default function App() {
           {tab === 'home' && <HomeTab user={currentUser} now={now} myClock={myClock} onClockIn={clockIn} onClockOut={clockOut} myBreak={myBreak} assignments={myAssignments} breakTypes={breakTypes} />}
           {tab === 'my-break' && <MyBreakTab breakTypes={breakTypes} activeBreak={myBreak} now={now} onStartBreak={startBreak} onEndBreak={endBreak} currentTicket={currentTickets[currentUser.id] || null} onSetTicket={setUserTicket} todayHistory={historyArr.filter(h => h.userId === currentUser.id && new Date(h.startTime).toISOString().split('T')[0] === today())} />}
           {tab === 'dashboard' && <DashboardTab breakTypes={breakTypes} users={usersArr} breaks={breaks} currentTickets={currentTickets} clockIns={clockIns} now={now} isAdmin={isAdmin} onForceEnd={forceEnd} />}
+          {tab === 'chat' && <ChatTab chatMsgs={chatMsgs} onSend={sendChat} currentUser={currentUser} />}
           {tab === 'history' && <HistoryTab breakTypes={breakTypes} history={historyArr} isAdmin={isAdmin} currentUserId={currentUser.id} />}
           {tab === 'assign' && isAdmin && <AssignTab users={usersArr} assignments={assignments} onAssign={assignTicket} />}
           {tab === 'categories' && isAdmin && <ManageBTTab breakTypes={breakTypes} onAdd={addBT} onUpdate={updateBT} onRemove={removeBT} />}
@@ -422,8 +499,108 @@ function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignmen
         </div>
       )}
 
+      <WeatherWidget />
+      <WeatherWidget />
       <MiniCalendar />
     </>
+  )
+}
+
+// ─── Weather Widget ──────────────────────────────────────────────
+function WeatherWidget() {
+  const [weather, setWeather] = useState(null)
+  useEffect(() => {
+    // Try geolocation first, fallback to San Salvador
+    const fetchWeather = (lat, lon) => {
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit`)
+        .then(r => r.json()).then(d => {
+          if (d.current) setWeather(d.current)
+        }).catch(() => {})
+    }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+        () => fetchWeather(13.69, -89.19) // San Salvador fallback
+      )
+    } else {
+      fetchWeather(13.69, -89.19)
+    }
+  }, [])
+
+  if (!weather) return null
+
+  const wmoIcons = { 0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️', 45:'🌫️', 48:'🌫️', 51:'🌦️', 53:'🌦️', 55:'🌧️', 61:'🌧️', 63:'🌧️', 65:'🌧️', 71:'🌨️', 73:'🌨️', 75:'❄️', 80:'🌦️', 81:'🌧️', 82:'⛈️', 95:'⛈️', 96:'⛈️', 99:'⛈️' }
+  const wmoDesc = { 0:'Clear sky', 1:'Mostly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 55:'Heavy drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 75:'Heavy snow', 80:'Rain showers', 81:'Heavy showers', 82:'Violent showers', 95:'Thunderstorm', 96:'Thunderstorm + hail', 99:'Severe thunderstorm' }
+  const code = weather.weather_code || 0
+
+  return (
+    <div className="weather-widget">
+      <div className="weather-icon">{wmoIcons[code] || '🌡️'}</div>
+      <div className="weather-info">
+        <div className="weather-desc">{wmoDesc[code] || 'Unknown'}</div>
+        <div className="weather-details">Humidity: {weather.relative_humidity_2m}% · Wind: {Math.round(weather.wind_speed_10m)} km/h</div>
+      </div>
+      <div className="weather-temp">{Math.round(weather.temperature_2m)}°F</div>
+    </div>
+  )
+}
+
+// ─── Chat Tab ────────────────────────────────────────────────────
+function ChatTab({ chatMsgs, onSend, currentUser }) {
+  const [text, setText] = useState('')
+  const msgsEndRef = React.useRef(null)
+  const msgs = objArr(chatMsgs).sort((a, b) => a.timestamp - b.timestamp)
+
+  useEffect(() => {
+    msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [msgs.length])
+
+  const handleSend = () => {
+    if (!text.trim()) return
+    onSend(text); setText('')
+  }
+
+  const formatMsgTime = (ts) => {
+    const d = new Date(ts)
+    const todayStr = today()
+    const msgDate = d.toISOString().split('T')[0]
+    if (msgDate === todayStr) return fmtTime(ts)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + fmtTime(ts)
+  }
+
+  return (
+    <div className="card chat-container">
+      <div className="card-header" style={{ marginBottom: 0 }}>
+        <div className="card-title">💬 Team Chat</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{msgs.length} messages</div>
+      </div>
+      <div className="chat-messages">
+        {msgs.length === 0 && <div className="empty-state"><div className="icon">💬</div><div className="msg">No messages yet. Say hi!</div></div>}
+        {msgs.map(m => (
+          <div key={m.id} className="chat-msg">
+            <div className="avatar avatar-sm" style={m.userId === currentUser.id ? { background: 'var(--accent)' } : { background: 'var(--info)' }}>{m.avatar || '?'}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="msg-name" style={m.userId === currentUser.id ? { color: 'var(--accent)' } : {}}>{m.userName}{m.userId === currentUser.id && ' (you)'}</span>
+                <span className="msg-time">{formatMsgTime(m.timestamp)}</span>
+              </div>
+              <div className="msg-text">{m.text}</div>
+            </div>
+          </div>
+        ))}
+        <div ref={msgsEndRef} />
+      </div>
+      <div className="chat-input-row">
+        <input
+          className="chat-input"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          placeholder="Type a message..."
+        />
+        <button className="btn btn-primary" style={{ width: 'auto', padding: '12px 20px' }} onClick={handleSend}>Send</button>
+      </div>
+    </div>
   )
 }
 
