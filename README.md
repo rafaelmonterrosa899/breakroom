@@ -66,6 +66,16 @@ npm run build
 
 Output goes to the `dist/` folder — ready to deploy anywhere.
 
+## Demo Credentials
+
+| Role | Username | Password |
+|------|----------|----------|
+| Admin | `george` | `admin123` |
+| Agent | `agent1` | `agent123` |
+| Agent | `agent2` | `agent123` |
+| Agent | `agent3` | `agent123` |
+| Agent | `agent4` | `agent123` |
+
 ## Tech Stack
 
 - **React 18** — UI framework
