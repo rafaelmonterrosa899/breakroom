@@ -356,6 +356,7 @@ export default function App() {
   // User CRUD
   const addUser = useCallback((n, u, p) => { const id = `u_${Date.now()}`, av = n.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2); set(ref(db, `users/${id}`), { id, username: u, name: n, role: 'agent', password: p, avatar: av }); notify(`👤 ${n} added`) }, [notify])
   const removeUser = useCallback(uid => { remove(ref(db, `users/${uid}`)); Object.entries(breaks).forEach(([k, v]) => { if (v.userId === uid) remove(ref(db, `breaks/${k}`)) }) }, [breaks])
+  const editUser = useCallback((uid, fields) => { Object.entries(fields).forEach(([k, v]) => set(ref(db, `users/${uid}/${k}`), v)); notify(`✏️ User updated`) }, [notify])
 
   // Break type CRUD
   const addBT = useCallback((k, d) => { set(ref(db, `breakTypes/${k}`), d); notify(`${d.icon} "${d.label}" added`) }, [notify])
@@ -388,11 +389,43 @@ export default function App() {
   const historyArr = objArr(history).sort((a, b) => b.startTime - a.startTime)
   const myAssignments = objArr(assignments).filter(a => a.userId === currentUser.id && a.date === today()).sort((a, b) => a.assignedAt - b.assignedAt)
 
+  // Chat unread badge
+  const [lastSeenChat, setLastSeenChat] = useState(() => {
+    try { return parseInt(localStorage.getItem('br_last_chat') || '0') } catch { return 0 }
+  })
+  const chatMsgsArr = objArr(chatMsgs)
+  const unreadChat = chatMsgsArr.filter(m => m.timestamp > lastSeenChat && m.userId !== currentUser.id).length
+
+  // Sound on new chat message from others
+  const prevChatCountRef = React.useRef(chatMsgsArr.length)
+  useEffect(() => {
+    const newMsgs = chatMsgsArr.filter(m => m.userId !== currentUser.id)
+    if (newMsgs.length > 0 && chatMsgsArr.length > prevChatCountRef.current) {
+      const latest = newMsgs.sort((a, b) => b.timestamp - a.timestamp)[0]
+      if (latest && latest.timestamp > lastSeenChat && tab !== 'chat') {
+        playNotifSound()
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(`💬 ${latest.userName}`, { body: latest.text.slice(0, 80) })
+        }
+      }
+    }
+    prevChatCountRef.current = chatMsgsArr.length
+  }, [chatMsgsArr.length])
+
+  // Mark chat as seen when opening chat tab
+  useEffect(() => {
+    if (tab === 'chat' && chatMsgsArr.length > 0) {
+      const latest = Math.max(...chatMsgsArr.map(m => m.timestamp))
+      setLastSeenChat(latest)
+      localStorage.setItem('br_last_chat', String(latest))
+    }
+  }, [tab, chatMsgsArr.length])
+
   const tabs = [
     { id: 'home', label: '🏠 Home' },
     { id: 'my-break', label: 'Breaks' },
     { id: 'dashboard', label: 'Dashboard' },
-    { id: 'chat', label: '💬 Chat' },
+    { id: 'chat', label: '💬 Chat', badge: unreadChat },
     { id: 'history', label: 'History' },
     ...(isAdmin ? [{ id: 'assign', label: 'Assign Tickets' }, { id: 'categories', label: 'Types' }, { id: 'manage', label: 'Users' }] : []),
   ]
@@ -403,7 +436,7 @@ export default function App() {
         <header className="topbar">
           <div className="topbar-left">
             <div className="topbar-logo">☕ <span>Break</span>Room</div>
-            <div className="topbar-tabs">{tabs.map(t => <button key={t.id} className={`topbar-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.id === 'dashboard' && <span className="live-dot" />}{t.label}</button>)}</div>
+            <div className="topbar-tabs">{tabs.map(t => <button key={t.id} className={`topbar-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)} style={{ position: 'relative' }}>{t.id === 'dashboard' && <span className="live-dot" />}{t.label}{t.badge > 0 && <span style={{ position: 'absolute', top: 2, right: 2, background: 'var(--danger)', color: 'white', fontSize: 10, fontWeight: 700, borderRadius: '50%', width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{t.badge > 9 ? '9+' : t.badge}</span>}</button>)}</div>
           </div>
           <div className="topbar-right">
             <div style={{ fontSize: 11, color: 'var(--success)', display: 'flex', alignItems: 'center' }}><span className="sync-dot" />Live</div>
@@ -412,16 +445,16 @@ export default function App() {
             <button className="btn btn-ghost" onClick={handleLogout}>Logout</button>
           </div>
         </header>
-        <div className="mobile-tabs">{tabs.map(t => <button key={t.id} className={`topbar-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>)}</div>
+        <div className="mobile-tabs">{tabs.map(t => <button key={t.id} className={`topbar-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)} style={{ position: 'relative' }}>{t.label}{t.badge > 0 && <span style={{ position: 'absolute', top: 0, right: 0, background: 'var(--danger)', color: 'white', fontSize: 10, fontWeight: 700, borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{t.badge > 9 ? '9+' : t.badge}</span>}</button>)}</div>
         <main className="main">
-          {tab === 'home' && <HomeTab user={currentUser} now={now} myClock={myClock} onClockIn={clockIn} onClockOut={clockOut} myBreak={myBreak} assignments={myAssignments} breakTypes={breakTypes} />}
+          {tab === 'home' && <HomeTab user={currentUser} now={now} myClock={myClock} onClockIn={clockIn} onClockOut={clockOut} myBreak={myBreak} assignments={myAssignments} breakTypes={breakTypes} todayClockHistory={objArr(clockIns).filter(c => c.userId === currentUser.id && c.date === today()).sort((a, b) => b.clockIn - a.clockIn)} />}
           {tab === 'my-break' && <MyBreakTab breakTypes={breakTypes} activeBreak={myBreak} now={now} onStartBreak={startBreak} onEndBreak={endBreak} currentTicket={currentTickets[currentUser.id] || null} onSetTicket={setUserTicket} todayHistory={historyArr.filter(h => h.userId === currentUser.id && new Date(h.startTime).toISOString().split('T')[0] === today())} />}
           {tab === 'dashboard' && <DashboardTab breakTypes={breakTypes} users={usersArr} breaks={breaks} currentTickets={currentTickets} clockIns={clockIns} now={now} isAdmin={isAdmin} onForceEnd={forceEnd} />}
           {tab === 'chat' && <ChatTab chatMsgs={chatMsgs} onSend={sendChat} currentUser={currentUser} />}
           {tab === 'history' && <HistoryTab breakTypes={breakTypes} history={historyArr} isAdmin={isAdmin} currentUserId={currentUser.id} />}
           {tab === 'assign' && isAdmin && <AssignTab users={usersArr} assignments={assignments} onAssign={assignTicket} />}
           {tab === 'categories' && isAdmin && <ManageBTTab breakTypes={breakTypes} onAdd={addBT} onUpdate={updateBT} onRemove={removeBT} />}
-          {tab === 'manage' && isAdmin && <ManageUsersTab users={usersArr} onAdd={addUser} onRemove={removeUser} currentUserId={currentUser.id} />}
+          {tab === 'manage' && isAdmin && <ManageUsersTab users={usersArr} onAdd={addUser} onRemove={removeUser} onEdit={editUser} currentUserId={currentUser.id} />}
         </main>
         {notif && <div className="notification">{notif}</div>}
       </div>
@@ -449,10 +482,18 @@ function LoginScreen({ onLogin }) {
 }
 
 // ─── Home ────────────────────────────────────────────────────────
-function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignments, breakTypes }) {
+function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignments, breakTypes, todayClockHistory }) {
   const time = new Date(now)
   const clockStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
   const dateStr = time.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+
+  const worldClocks = [
+    { city: 'El Salvador', tz: 'America/El_Salvador', flag: '🇸🇻' },
+    { city: 'Buena Park', tz: 'America/Los_Angeles', flag: '🇺🇸' },
+    { city: 'London', tz: 'Europe/London', flag: '🇬🇧' },
+    { city: 'Madrid', tz: 'Europe/Madrid', flag: '🇪🇸' },
+    { city: 'Sydney', tz: 'Australia/Sydney', flag: '🇦🇺' },
+  ]
 
   return (
     <>
@@ -471,7 +512,7 @@ function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignmen
         </div>
         {myClock && (
           <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-            Clocked in since {fmtTime(myClock.clockIn)} · <span className="mono" style={{ color: 'var(--success)' }}>{fmt(now - myClock.clockIn)}</span>
+            Clocked in at <span className="mono" style={{ color: 'var(--text-secondary)' }}>{fmtTime(myClock.clockIn)}</span> · <span className="mono" style={{ color: 'var(--success)' }}>{fmt(now - myClock.clockIn)}</span>
           </div>
         )}
         {myBreak && (
@@ -480,6 +521,42 @@ function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignmen
           </div>
         )}
       </div>
+
+      {/* World Clocks */}
+      <div className="card">
+        <div className="card-header"><div className="card-title">🌍 World Clocks</div></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+          {worldClocks.map(wc => {
+            const t = new Date(now).toLocaleTimeString('en-US', { timeZone: wc.tz, hour: '2-digit', minute: '2-digit', hour12: true })
+            const d = new Date(now).toLocaleDateString('en-US', { timeZone: wc.tz, weekday: 'short' })
+            return (
+              <div key={wc.tz} style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ fontSize: 20 }}>{wc.flag}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{wc.city}</div>
+                <div className="mono" style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{t}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Clock In/Out History */}
+      {todayClockHistory.length > 0 && (
+        <div className="card">
+          <div className="card-header"><div className="card-title">🕐 My Clock History Today</div></div>
+          <table className="history-table">
+            <thead><tr><th>Clock In</th><th>Clock Out</th><th>Duration</th></tr></thead>
+            <tbody>{todayClockHistory.map((c, i) => (
+              <tr key={i}>
+                <td className="mono" style={{ fontSize: 13, color: 'var(--success)' }}>{fmtTime(c.clockIn)}</td>
+                <td className="mono" style={{ fontSize: 13, color: c.clockOut ? 'var(--danger)' : 'var(--text-muted)' }}>{c.clockOut ? fmtTime(c.clockOut) : '— Active'}</td>
+                <td className="mono" style={{ fontSize: 13 }}>{c.clockOut ? fmt(c.clockOut - c.clockIn) : fmt(now - c.clockIn)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
 
       {assignments.length > 0 && (
         <div className="card">
@@ -500,7 +577,6 @@ function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignmen
       )}
 
       <WeatherWidget />
-      <WeatherWidget />
       <MiniCalendar />
     </>
   )
@@ -508,39 +584,64 @@ function HomeTab({ user, now, myClock, onClockIn, onClockOut, myBreak, assignmen
 
 // ─── Weather Widget ──────────────────────────────────────────────
 function WeatherWidget() {
-  const [weather, setWeather] = useState(null)
+  const [data, setData] = useState(null)
+  const [loc, setLoc] = useState('Loading...')
   useEffect(() => {
-    // Try geolocation first, fallback to San Salvador
-    const fetchWeather = (lat, lon) => {
-      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&temperature_unit=fahrenheit`)
+    const fetchW = (lat, lon) => {
+      // Reverse geocode for location name
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&temperature_unit=celsius&timezone=auto&forecast_days=1`)
         .then(r => r.json()).then(d => {
-          if (d.current) setWeather(d.current)
+          if (d.current) setData(d)
+          if (d.timezone) setLoc(d.timezone.split('/').pop().replace(/_/g, ' '))
         }).catch(() => {})
     }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        pos => fetchWeather(pos.coords.latitude, pos.coords.longitude),
-        () => fetchWeather(13.69, -89.19) // San Salvador fallback
+        p => fetchW(p.coords.latitude, p.coords.longitude),
+        () => fetchW(13.69, -89.19)
       )
-    } else {
-      fetchWeather(13.69, -89.19)
-    }
+    } else fetchW(13.69, -89.19)
   }, [])
 
-  if (!weather) return null
+  if (!data) return null
 
-  const wmoIcons = { 0:'☀️', 1:'🌤️', 2:'⛅', 3:'☁️', 45:'🌫️', 48:'🌫️', 51:'🌦️', 53:'🌦️', 55:'🌧️', 61:'🌧️', 63:'🌧️', 65:'🌧️', 71:'🌨️', 73:'🌨️', 75:'❄️', 80:'🌦️', 81:'🌧️', 82:'⛈️', 95:'⛈️', 96:'⛈️', 99:'⛈️' }
-  const wmoDesc = { 0:'Clear sky', 1:'Mostly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Foggy', 48:'Foggy', 51:'Light drizzle', 53:'Drizzle', 55:'Heavy drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 71:'Light snow', 73:'Snow', 75:'Heavy snow', 80:'Rain showers', 81:'Heavy showers', 82:'Violent showers', 95:'Thunderstorm', 96:'Thunderstorm + hail', 99:'Severe thunderstorm' }
-  const code = weather.weather_code || 0
+  const wmo = c => { if (c === 0) return '☀️'; if (c <= 2) return '⛅'; if (c <= 3) return '☁️'; if (c <= 49) return '🌫️'; if (c <= 59) return '🌦️'; if (c <= 69) return '🌧️'; if (c <= 79) return '❄️'; return '⛈️' }
+  const wmoTxt = c => { if (c === 0) return 'Clear'; if (c <= 2) return 'Partly Cloudy'; if (c <= 3) return 'Overcast'; if (c <= 49) return 'Foggy'; if (c <= 59) return 'Drizzle'; if (c <= 69) return 'Rain'; if (c <= 79) return 'Snow'; return 'Storm' }
+
+  const curHour = new Date().getHours()
+  const hourly = (data.hourly?.time || []).slice(curHour, curHour + 6).map((t, i) => ({
+    hour: new Date(t).getHours(),
+    temp: Math.round(data.hourly.temperature_2m[curHour + i]),
+    icon: wmo(data.hourly.weather_code[curHour + i])
+  }))
+
+  const hi = data.daily ? Math.round(data.daily.temperature_2m_max[0]) : '--'
+  const lo = data.daily ? Math.round(data.daily.temperature_2m_min[0]) : '--'
 
   return (
-    <div className="weather-widget">
-      <div className="weather-icon">{wmoIcons[code] || '🌡️'}</div>
-      <div className="weather-info">
-        <div className="weather-desc">{wmoDesc[code] || 'Unknown'}</div>
-        <div className="weather-details">Humidity: {weather.relative_humidity_2m}% · Wind: {Math.round(weather.wind_speed_10m)} km/h</div>
+    <div style={{ background: 'linear-gradient(135deg, #1a3a5c 0%, #0f2744 100%)', borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>{loc}</div>
+          <div style={{ fontSize: 52, fontWeight: 300, color: 'white', lineHeight: 1, marginTop: 4, fontFamily: "'DM Sans', sans-serif" }}>{Math.round(data.current.temperature_2m)}°</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 36 }}>{wmo(data.current.weather_code)}</div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>{wmoTxt(data.current.weather_code)}</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>H:{hi}° L:{lo}°</div>
+        </div>
       </div>
-      <div className="weather-temp">{Math.round(weather.temperature_2m)}°F</div>
+      {hourly.length > 0 && (
+        <div style={{ display: 'flex', gap: 0, marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.1)', justifyContent: 'space-between' }}>
+          {hourly.map((h, i) => (
+            <div key={i} style={{ textAlign: 'center', flex: 1 }}>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{i === 0 ? 'Now' : `${String(h.hour).padStart(2, '0')}:00`}</div>
+              <div style={{ fontSize: 20, margin: '6px 0' }}>{h.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'white' }}>{h.temp}°</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -838,14 +939,61 @@ function ManageBTTab({ breakTypes, onAdd, onUpdate, onRemove }) {
 }
 
 // ─── Manage Users ────────────────────────────────────────────────
-function ManageUsersTab({ users, onAdd, onRemove, currentUserId }) {
+function ManageUsersTab({ users, onAdd, onRemove, onEdit, currentUserId }) {
   const [n, setN] = useState(''), [u, setU] = useState(''), [p, setP] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEF] = useState({ name: '', username: '', password: '' })
+
   const add = () => { if (!n.trim() || !u.trim() || !p.trim()) return; onAdd(n.trim(), u.trim(), p.trim()); setN(''); setU(''); setP('') }
+  const openEdit = (user) => { setEditing(user); setEF({ name: user.name, username: user.username, password: '' }) }
+  const saveEdit = () => {
+    if (!editForm.name.trim() || !editForm.username.trim()) return
+    const fields = { name: editForm.name.trim(), username: editForm.username.trim(), avatar: editForm.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
+    if (editForm.password.trim()) fields.password = editForm.password.trim()
+    onEdit(editing.id, fields)
+    setEditing(null)
+  }
+
   return (
-    <div className="card">
-      <div className="card-header"><div><div className="card-title">Users</div><div className="card-subtitle">{users.length} registered</div></div></div>
-      {users.map(x => <div key={x.id} className="user-row"><div className="avatar avatar-sm">{x.avatar}</div><div className="user-row-info"><div className="name">{x.name}</div><div className="meta">@{x.username} · {x.role}{x.id === currentUserId && ' (you)'}</div></div>{x.id !== currentUserId && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => onRemove(x.id)}>Remove</button>}</div>)}
-      <div className="add-user-form"><input placeholder="Name" value={n} onChange={e => setN(e.target.value)} /><input placeholder="Username" value={u} onChange={e => setU(e.target.value)} /><input placeholder="Password" type="password" value={p} onChange={e => setP(e.target.value)} /><button className="btn btn-primary" style={{ width: 'auto', padding: '8px 16px' }} onClick={add}>+ Add</button></div>
-    </div>
+    <>
+      <div className="card">
+        <div className="card-header"><div><div className="card-title">Users</div><div className="card-subtitle">{users.length} registered</div></div></div>
+        {users.map(x => (
+          <div key={x.id} className="user-row">
+            <div className="avatar avatar-sm">{x.avatar}</div>
+            <div className="user-row-info">
+              <div className="name">{x.name}</div>
+              <div className="meta">@{x.username} · {x.role}{x.id === currentUserId && ' (you)'}</div>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => openEdit(x)}>✏️ Edit</button>
+            {x.id !== currentUserId && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => onRemove(x.id)}>Remove</button>}
+          </div>
+        ))}
+        <div className="add-user-form">
+          <input placeholder="Name" value={n} onChange={e => setN(e.target.value)} />
+          <input placeholder="Username" value={u} onChange={e => setU(e.target.value)} />
+          <input placeholder="Password" type="password" value={p} onChange={e => setP(e.target.value)} />
+          <button className="btn btn-primary" style={{ width: 'auto', padding: '8px 16px' }} onClick={add}>+ Add</button>
+        </div>
+      </div>
+
+      {editing && (
+        <div className="modal-overlay" onClick={() => setEditing(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Edit User</h2>
+            <div className="fg"><label>Name</label>
+              <input value={editForm.name} onChange={e => setEF(f => ({ ...f, name: e.target.value }))} autoFocus /></div>
+            <div className="fg"><label>Username</label>
+              <input value={editForm.username} onChange={e => setEF(f => ({ ...f, username: e.target.value }))} /></div>
+            <div className="fg"><label>New Password <span style={{ fontWeight: 400, textTransform: 'none' }}>(leave blank to keep current)</span></label>
+              <input type="password" value={editForm.password} onChange={e => setEF(f => ({ ...f, password: e.target.value }))} placeholder="Enter new password..." /></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ width: 'auto', padding: '10px 24px' }} onClick={saveEdit}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
