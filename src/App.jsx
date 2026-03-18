@@ -426,7 +426,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'chat', label: '💬 Chat', badge: unreadChat },
     { id: 'history', label: 'History' },
-    ...(isAdmin ? [{ id: 'assign', label: 'Assign Tickets' }, { id: 'categories', label: 'Types' }, { id: 'manage', label: 'Users' }] : []),
+    ...(isAdmin ? [{ id: 'assign', label: 'Assign Tickets' }, { id: 'attendance', label: '🕐 Attendance' }, { id: 'categories', label: 'Types' }, { id: 'manage', label: 'Users' }] : []),
   ]
 
   return (
@@ -452,6 +452,7 @@ export default function App() {
           {tab === 'chat' && <ChatTab chatMsgs={chatMsgs} onSend={sendChat} currentUser={currentUser} />}
           {tab === 'history' && <HistoryTab breakTypes={breakTypes} history={historyArr} isAdmin={isAdmin} currentUserId={currentUser.id} />}
           {tab === 'assign' && isAdmin && <AssignTab users={usersArr} assignments={assignments} onAssign={assignTicket} />}
+          {tab === 'attendance' && isAdmin && <AttendanceTab users={usersArr} clockIns={clockIns} now={now} />}
           {tab === 'categories' && isAdmin && <ManageBTTab breakTypes={breakTypes} onAdd={addBT} onUpdate={updateBT} onRemove={removeBT} />}
           {tab === 'manage' && isAdmin && <ManageUsersTab users={usersArr} onAdd={addUser} onRemove={removeUser} onEdit={editUser} currentUserId={currentUser.id} />}
         </main>
@@ -651,54 +652,47 @@ function ChatTab({ chatMsgs, onSend, currentUser }) {
   const msgsEndRef = React.useRef(null)
   const msgs = objArr(chatMsgs).sort((a, b) => a.timestamp - b.timestamp)
 
-  useEffect(() => {
-    msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [msgs.length])
+  useEffect(() => { msgsEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
 
-  const handleSend = () => {
-    if (!text.trim()) return
-    onSend(text); setText('')
-  }
+  const handleSend = () => { if (!text.trim()) return; onSend(text); setText('') }
 
-  const formatMsgTime = (ts) => {
-    const d = new Date(ts)
-    const todayStr = today()
-    const msgDate = d.toISOString().split('T')[0]
-    if (msgDate === todayStr) return fmtTime(ts)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + fmtTime(ts)
-  }
-
+  let lastDate = ''
   return (
-    <div className="card chat-container">
-      <div className="card-header" style={{ marginBottom: 0 }}>
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)', padding: 0 }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
         <div className="card-title">💬 Team Chat</div>
-        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{msgs.length} messages</div>
+        <div className="card-subtitle">{msgs.length} messages · Real-time</div>
       </div>
-      <div className="chat-messages">
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
         {msgs.length === 0 && <div className="empty-state"><div className="icon">💬</div><div className="msg">No messages yet. Say hi!</div></div>}
-        {msgs.map(m => (
-          <div key={m.id} className="chat-msg">
-            <div className="avatar avatar-sm" style={m.userId === currentUser.id ? { background: 'var(--accent)' } : { background: 'var(--info)' }}>{m.avatar || '?'}</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="msg-name" style={m.userId === currentUser.id ? { color: 'var(--accent)' } : {}}>{m.userName}{m.userId === currentUser.id && ' (you)'}</span>
-                <span className="msg-time">{formatMsgTime(m.timestamp)}</span>
+        {msgs.map((m, i) => {
+          const msgDate = new Date(m.timestamp).toLocaleDateString()
+          let showDate = false
+          if (msgDate !== lastDate) { showDate = true; lastDate = msgDate }
+          const isMe = m.userId === currentUser.id
+          return (
+            <React.Fragment key={m.id || i}>
+              {showDate && <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '12px 0 8px', fontWeight: 600 }}>{msgDate === new Date().toLocaleDateString() ? 'Today' : msgDate}</div>}
+              <div style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexDirection: isMe ? 'row-reverse' : 'row', alignItems: 'flex-end', maxWidth: '75%' }}>
+                  <div className="avatar avatar-sm" style={{ background: isMe ? 'var(--accent)' : 'var(--info)', flexShrink: 0, fontSize: m.avatar?.length > 2 ? 14 : 11 }}>{m.avatar || '?'}</div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: isMe ? 'var(--accent)' : 'var(--info)', textAlign: isMe ? 'right' : 'left', marginBottom: 2 }}>{isMe ? 'You' : m.userName}</div>
+                    <div style={{ padding: '10px 14px', background: isMe ? 'var(--accent)' : 'var(--bg-elevated)', color: isMe ? 'white' : 'var(--text-primary)', borderRadius: isMe ? '16px 4px 16px 16px' : '4px 16px 16px 16px', fontSize: 14, lineHeight: 1.5 }}>{m.text}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: isMe ? 'right' : 'left', marginTop: 2 }}>{fmtTime(m.timestamp)}</div>
+                  </div>
+                </div>
               </div>
-              <div className="msg-text">{m.text}</div>
-            </div>
-          </div>
-        ))}
+            </React.Fragment>
+          )
+        })}
         <div ref={msgsEndRef} />
       </div>
-      <div className="chat-input-row">
-        <input
-          className="chat-input"
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          placeholder="Type a message..."
-        />
-        <button className="btn btn-primary" style={{ width: 'auto', padding: '12px 20px' }} onClick={handleSend}>Send</button>
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+        <div className="chat-input-row">
+          <input className="chat-input" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }} placeholder="Type a message..." autoComplete="off" />
+          <button className="btn btn-primary" style={{ width: 'auto', padding: '12px 20px' }} onClick={handleSend}>Send</button>
+        </div>
       </div>
     </div>
   )
@@ -937,17 +931,55 @@ function ManageBTTab({ breakTypes, onAdd, onUpdate, onRemove }) {
   )
 }
 
+// ─── Attendance History (Admin) ──────────────────────────────────
+function AttendanceTab({ users, clockIns, now }) {
+  const [dateFilter, setDateFilter] = useState(today())
+  const allCIs = objArr(clockIns).filter(c => c.date === dateFilter).sort((a, b) => a.clockIn - b.clockIn)
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">🕐 Attendance Log</div>
+        <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ padding: '6px 12px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontFamily: 'inherit', fontSize: 13 }} />
+      </div>
+      {allCIs.length === 0 ? <div className="empty-state"><div className="icon">🕐</div><div className="msg">No clock-ins for this date</div></div> :
+        <table className="history-table">
+          <thead><tr><th>Agent</th><th>Clock In</th><th>Clock Out</th><th>Duration</th><th>Status</th></tr></thead>
+          <tbody>{allCIs.map((c, i) => {
+            const user = users.find(u => u.id === c.userId)
+            const dur = c.clockOut ? c.clockOut - c.clockIn : now - c.clockIn
+            return (
+              <tr key={i}>
+                <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}><div className="avatar avatar-sm" style={{ fontSize: user?.avatar?.length > 2 ? 14 : 11 }}>{user?.avatar || '?'}</div><span style={{ fontWeight: 500 }}>{c.userName}</span></td>
+                <td className="mono" style={{ fontSize: 13, color: 'var(--success)' }}>{fmtTime(c.clockIn)}</td>
+                <td className="mono" style={{ fontSize: 13, color: c.clockOut ? 'var(--danger)' : 'var(--text-muted)' }}>{c.clockOut ? fmtTime(c.clockOut) : '— Active'}</td>
+                <td className="mono" style={{ fontSize: 13 }}>{fmt(dur)}</td>
+                <td>{c.clockOut ? <span className="status-badge status-offline-badge">Done</span> : <span className="status-badge status-available">Active</span>}</td>
+              </tr>
+            )
+          })}</tbody>
+        </table>
+      }
+    </div>
+  )
+}
+
 // ─── Manage Users ────────────────────────────────────────────────
+const AVATAR_EMOJIS = ['😀','😎','🤓','🧑‍💻','👨‍💼','👩‍💼','🦊','🐱','🐶','🦁','🐼','🦄','🐸','🌟','⚡','🔥','💎','🎯','🚀','🎮','🎸','🏆','🌈','🍕','☕','🎭','🤖','👾','🧑‍🚀','🦸']
+
 function ManageUsersTab({ users, onAdd, onRemove, onEdit, currentUserId }) {
   const [n, setN] = useState(''), [u, setU] = useState(''), [p, setP] = useState('')
   const [editing, setEditing] = useState(null)
-  const [editForm, setEF] = useState({ name: '', username: '', password: '' })
+  const [editForm, setEF] = useState({ name: '', username: '', password: '', avatar: '' })
+  const [showAvatarPicker, setSAP] = useState(false)
 
   const add = () => { if (!n.trim() || !u.trim() || !p.trim()) return; onAdd(n.trim(), u.trim(), p.trim()); setN(''); setU(''); setP('') }
-  const openEdit = (user) => { setEditing(user); setEF({ name: user.name, username: user.username, password: '' }) }
+  const openEdit = (user) => { setEditing(user); setEF({ name: user.name, username: user.username, password: '', avatar: user.avatar || '' }); setSAP(false) }
   const saveEdit = () => {
     if (!editForm.name.trim() || !editForm.username.trim()) return
-    const fields = { name: editForm.name.trim(), username: editForm.username.trim(), avatar: editForm.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) }
+    const fields = { name: editForm.name.trim(), username: editForm.username.trim() }
+    if (editForm.avatar) fields.avatar = editForm.avatar
+    else fields.avatar = editForm.name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     if (editForm.password.trim()) fields.password = editForm.password.trim()
     onEdit(editing.id, fields)
     setEditing(null)
@@ -959,7 +991,7 @@ function ManageUsersTab({ users, onAdd, onRemove, onEdit, currentUserId }) {
         <div className="card-header"><div><div className="card-title">Users</div><div className="card-subtitle">{users.length} registered</div></div></div>
         {users.map(x => (
           <div key={x.id} className="user-row">
-            <div className="avatar avatar-sm">{x.avatar}</div>
+            <div className="avatar avatar-sm" style={{ fontSize: x.avatar?.length > 2 ? 18 : 11 }}>{x.avatar}</div>
             <div className="user-row-info">
               <div className="name">{x.name}</div>
               <div className="meta">@{x.username} · {x.role}{x.id === currentUserId && ' (you)'}</div>
@@ -980,6 +1012,18 @@ function ManageUsersTab({ users, onAdd, onRemove, onEdit, currentUserId }) {
         <div className="modal-overlay" onClick={() => setEditing(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>Edit User</h2>
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div className="avatar avatar-lg" style={{ margin: '0 auto 8px', fontSize: editForm.avatar?.length > 2 ? 28 : 22, cursor: 'pointer', border: '2px dashed var(--border)' }} onClick={() => setSAP(!showAvatarPicker)}>{editForm.avatar || '?'}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setSAP(!showAvatarPicker)}>Click to change avatar</div>
+              {showAvatarPicker && (
+                <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+                  {AVATAR_EMOJIS.map(e => (
+                    <button key={e} onClick={() => { setEF(f => ({ ...f, avatar: e })); setSAP(false) }} style={{ width: 36, height: 36, borderRadius: 'var(--radius-sm)', border: editForm.avatar === e ? '2px solid var(--accent)' : '1px solid var(--border)', background: editForm.avatar === e ? 'var(--accent-glow)' : 'var(--bg-surface)', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{e}</button>
+                  ))}
+                  <button onClick={() => { setEF(f => ({ ...f, avatar: f.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) })); setSAP(false) }} style={{ padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-surface)', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }}>Use Initials</button>
+                </div>
+              )}
+            </div>
             <div className="fg"><label>Name</label>
               <input value={editForm.name} onChange={e => setEF(f => ({ ...f, name: e.target.value }))} autoFocus /></div>
             <div className="fg"><label>Username</label>
