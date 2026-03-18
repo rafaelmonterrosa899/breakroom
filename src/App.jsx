@@ -381,24 +381,15 @@ export default function App() {
     set(ref(db, `chatMessages/${id}`), { id, userId: currentUser.id, userName: currentUser.name, avatar: currentUser.avatar, text: text.trim(), timestamp: Date.now() })
   }, [currentUser])
 
-  if (loading) return <><style>{CSS}</style><div className="loading-screen"><div className="spinner" /><div>Connecting to BreakRoom...</div></div></>
-  if (!currentUser) return <><style>{CSS}</style><LoginScreen users={users} onLogin={handleLogin} /></>
-
-  const isAdmin = currentUser.role === 'admin'
-  const usersArr = objArr(users)
-  const historyArr = objArr(history).sort((a, b) => b.startTime - a.startTime)
-  const myAssignments = objArr(assignments).filter(a => a.userId === currentUser.id && a.date === today()).sort((a, b) => a.assignedAt - b.assignedAt)
-
-  // Chat unread badge
+  // Chat unread badge (hooks must be before early returns)
   const [lastSeenChat, setLastSeenChat] = useState(() => {
     try { return parseInt(localStorage.getItem('br_last_chat') || '0') } catch { return 0 }
   })
   const chatMsgsArr = objArr(chatMsgs)
-  const unreadChat = chatMsgsArr.filter(m => m.timestamp > lastSeenChat && m.userId !== currentUser.id).length
-
-  // Sound on new chat message from others
   const prevChatCountRef = React.useRef(chatMsgsArr.length)
+
   useEffect(() => {
+    if (!currentUser) return
     const newMsgs = chatMsgsArr.filter(m => m.userId !== currentUser.id)
     if (newMsgs.length > 0 && chatMsgsArr.length > prevChatCountRef.current) {
       const latest = newMsgs.sort((a, b) => b.timestamp - a.timestamp)[0]
@@ -412,7 +403,6 @@ export default function App() {
     prevChatCountRef.current = chatMsgsArr.length
   }, [chatMsgsArr.length])
 
-  // Mark chat as seen when opening chat tab
   useEffect(() => {
     if (tab === 'chat' && chatMsgsArr.length > 0) {
       const latest = Math.max(...chatMsgsArr.map(m => m.timestamp))
@@ -420,6 +410,15 @@ export default function App() {
       localStorage.setItem('br_last_chat', String(latest))
     }
   }, [tab, chatMsgsArr.length])
+
+  if (loading) return <><style>{CSS}</style><div className="loading-screen"><div className="spinner" /><div>Connecting to BreakRoom...</div></div></>
+  if (!currentUser) return <><style>{CSS}</style><LoginScreen users={users} onLogin={handleLogin} /></>
+
+  const isAdmin = currentUser.role === 'admin'
+  const usersArr = objArr(users)
+  const historyArr = objArr(history).sort((a, b) => b.startTime - a.startTime)
+  const myAssignments = objArr(assignments).filter(a => a.userId === currentUser.id && a.date === today()).sort((a, b) => a.assignedAt - b.assignedAt)
+  const unreadChat = chatMsgsArr.filter(m => m.timestamp > lastSeenChat && currentUser && m.userId !== currentUser.id).length
 
   const tabs = [
     { id: 'home', label: '🏠 Home' },
