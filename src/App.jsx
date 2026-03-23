@@ -813,7 +813,7 @@ function DashboardTab({ breakTypes, users, breaks, currentTickets, clockIns, now
             const mx = info.maxMinutes * 60000, pct = Math.min(el / mx * 100, 100), isOt = !info.requiresTicket && el > mx, isTk = info.requiresTicket
             return (
               <div key={user.id} className="agent-card" style={{ borderColor: isOt ? 'rgba(239,68,68,0.4)' : isTk ? 'rgba(59,130,246,0.3)' : 'rgba(234,179,8,0.3)' }}>
-                <div className="agent-card-header"><div className="avatar avatar-sm" style={{ background: info.color }}>{user.avatar}</div><div><div className="agent-name">{user.name}</div><span className={`status-badge ${isOt ? 'status-overtime-badge' : isTk ? 'status-working-badge' : 'status-on-break-badge'}`}><span className="status-dot" />{isOt ? 'Overtime' : isTk ? 'Working' : 'On Break'}</span></div></div>
+                <div className="agent-card-header"><div className="avatar avatar-sm" style={{ background: info.color }}>{user.avatar}</div><div><div className="agent-name">{user.name}</div><span className={`status-badge ${isOt ? 'status-overtime-badge' : isTk ? 'status-working-badge' : 'status-on-break-badge'}`}><span className="status-dot" />{isOt ? 'Overtime' : isTk ? 'Working' : info.label}</span></div></div>
                 <div className="agent-break-type">{info.icon} {info.label}{!isTk && ` · ${info.maxMinutes}m`}</div>
                 {ab.ticketNumber && <div className="mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--info)', marginTop: 4 }}>🎫 #{ab.ticketNumber}</div>}
                 <div className={`agent-timer ${isTk ? '' : isOt ? 'status-overtime' : 'status-on-break'}`} style={isTk ? { color: 'var(--info)' } : {}}>{fmt(el)}</div>
