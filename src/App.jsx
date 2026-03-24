@@ -22,7 +22,7 @@ const DEFAULT_USERS = {
 // ─── Helpers ─────────────────────────────────────────────────────
 function fmt(ms){if(ms<0)ms=0;const t=Math.floor(ms/1000),h=Math.floor(t/3600),m=Math.floor((t%3600)/60),s=t%60;if(h>0)return`${h}h ${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`;return`${String(m).padStart(2,'0')}m ${String(s).padStart(2,'0')}s`}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true})}
-function today(){return new Date().toISOString().split('T')[0]}
+function today(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function greeting(){const h=new Date().getHours();if(h<12)return'Good morning';if(h<17)return'Good afternoon';return'Good evening'}
 function objArr(o){return o?Object.values(o):[]}
 
